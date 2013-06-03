@@ -6,11 +6,12 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.DashPathEffect;
 import android.graphics.Paint;
+import android.graphics.Paint.Align;
 import android.graphics.Paint.Style;
 import android.graphics.Path;
 import android.graphics.Point;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
@@ -33,7 +34,7 @@ public class SpeedometerView extends android.view.View {
 	private Bitmap bitmap;
 	private Drawable speedPointer;
 
-	private static RectF ovalRectOUT = new RectF(0, 0, 50, 50);
+	private static RectF ovalRectOUT = new RectF(0, 0, 200, 250);
 	private static RectF speedRect = new RectF(0, 0, 50, 50);
 	public SpeedometerView(Context context, AttributeSet attrs) {
 		super(context, attrs);
@@ -48,7 +49,6 @@ public class SpeedometerView extends android.view.View {
 		paintSmallSpeed = new Paint();
 		paintSmallSpeed.setStyle(Style.STROKE);
 		paintSmallSpeed.setColor(Color.YELLOW);
-		paintSmallSpeed.setStrokeWidth(5);
 
 		paintLargeSpeed = new Paint();
 		paintLargeSpeed.setStyle(Style.STROKE);
@@ -58,10 +58,6 @@ public class SpeedometerView extends android.view.View {
 		paintRect = new Paint();
 		paintRect.setStyle(Style.FILL);
 		paintRect.setColor(Color.GREEN);
-		
-		path = new Path();
-		speedSmallPath = new Path();
-		speedLargePath = new Path();
 
 		Resources res = getResources();
 		speedPointer = res.getDrawable(R.drawable.clockgoog_minute);
@@ -98,55 +94,131 @@ public class SpeedometerView extends android.view.View {
 		Log.i(TAG, "ON DRAW");
 		super.onDraw(canvas);
 
-		getSemicircle(10, 100, 200, 100, ovalRectOUT,
-				Side.LEFT);
-		getSemicircle(15, 100, 195, 100, speedRect,
-				Side.LEFT);
+		float radius = 84f;
+		float shortRadius = radius * 0.9f;
+		float longRadius = radius * 1.1f;
+		
+		double min = 1000;
+		double max = 7890;
 
-		int sweepAngle = 220;
-		int startAngle = 160;
-		path.addArc(ovalRectOUT, startAngle, sweepAngle);
+		double angleMin = 300;
+		double angleMax = 60;
 
-		// TODO investigate correct sweep
-		speedSmallPath.addArc(speedRect, startAngle, sweepAngle);
-		speedLargePath.addArc(speedRect, startAngle, sweepAngle);
+		canvas.drawRect(ovalRectOUT, paintFill);
+		// drawSpeedHand
 
-		// get point from the middle
+		double NULL_VALUE = Double.MAX_VALUE;
+		double minorTicks = NULL_VALUE, majorTicks = NULL_VALUE;
 
-		canvas.drawRect(ovalRectOUT, paintRect);
-		canvas.drawPath(path, paintFill);
-
-		int speedSpot = 0;
-		int vOffsetStep = 0;
-		for (int i = 0; i < 18; i++) {
-			canvas.drawTextOnPath(Integer.toString(speedSpot), path,
-					vOffsetStep, 20, paintText);
-			speedSpot += 10;
-			vOffsetStep += 20;
+		if (minorTicks == NULL_VALUE) {
+			minorTicks = (max - min) / 30;
+		}
+		if (majorTicks == NULL_VALUE) {
+			majorTicks = (max - min) / 10;
 		}
 
-		float[] pathEffSmall = { 5, 5 }; // 5 - width ,5 - padding
-		float[] pathEffLarge = { 5, 15 }; // 5 - width ,15 - padding
-		
-		paintLargeSpeed.setPathEffect(new DashPathEffect(pathEffLarge, 0));
-		paintSmallSpeed.setPathEffect(new DashPathEffect(pathEffSmall, 0));
-		
-		canvas.drawPath(speedSmallPath, paintSmallSpeed);
-		canvas.drawPath(speedLargePath, paintLargeSpeed);
-		
 		int intrinsicWidth = speedPointer.getIntrinsicWidth();
 		int intrinsicHeight = speedPointer.getIntrinsicHeight();
-		
-		Log.v(TAG,"width" + intrinsicWidth);
-		Log.v(TAG,"height" + intrinsicHeight);
+
+		float percent = (float) ((4600 - min) / (max - min));
+		float current = 240 * percent;
 		
 		canvas.save();
-		canvas.rotate(360,100,100);// TODO calculate rotate
-		speedPointer.setBounds(100 - (intrinsicWidth / 2), 110 - (intrinsicHeight / 2), 100 + (intrinsicWidth / 2), 60 + (intrinsicHeight / 2));
+		
+		int start = (int) (240 + current);
+		float currentPoint = start ;
+
+		canvas.rotate(currentPoint, 100, 100);
+
+		speedPointer.setBounds(100 - (intrinsicWidth / 2),
+				110 - (intrinsicHeight / 2), 100 + (intrinsicWidth / 2),
+				60 + (intrinsicHeight / 2));
 		speedPointer.draw(canvas);
-		
-		
 		canvas.restore();
+		
+		drawTicks(canvas, min, max, angleMin, angleMax, 100, 100, longRadius,
+				radius, minorTicks, paintSmallSpeed, false);
+		drawTicks(canvas, min, max, angleMin, angleMax, 100, 100, longRadius,
+				shortRadius, majorTicks, paintSmallSpeed, true);
+	}
+
+	/**
+	 * Returns the angle for a specific chart value.
+	 * 
+	 * @param value
+	 *            the chart value
+	 * @param minAngle
+	 *            the minimum chart angle value
+	 * @param maxAngle
+	 *            the maximum chart angle value
+	 * @param min
+	 *            the minimum chart value
+	 * @param max
+	 *            the maximum chart value
+	 * @return the angle
+	 */
+	private double getAngleForValue(double value, double minAngle,
+			double maxAngle, double min, double max) {
+		double angleDiff = maxAngle - minAngle;
+		double diff = max - min;
+		return Math.toRadians(minAngle + (value - min) * angleDiff / diff);
+	}
+
+	/**
+	 * Draws the chart tick lines.
+	 * 
+	 * @param canvas
+	 *            the canvas
+	 * @param min
+	 *            the minimum chart value
+	 * @param max
+	 *            the maximum chart value
+	 * @param minAngle
+	 *            the minimum chart angle value
+	 * @param maxAngle
+	 *            the maximum chart angle value
+	 * @param centerX
+	 *            the center x value
+	 * @param centerY
+	 *            the center y value
+	 * @param longRadius
+	 *            the long radius
+	 * @param shortRadius
+	 *            the short radius
+	 * @param ticks
+	 *            the tick spacing
+	 * @param paint
+	 *            the paint settings
+	 * @param labels
+	 *            paint the labels
+	 * @return the angle
+	 */
+	private void drawTicks(Canvas canvas, double min, double max,
+			double minAngle, double maxAngle, int centerX, int centerY,
+			double longRadius, double shortRadius, double ticks, Paint paint,
+			boolean labels) {
+		// TODO count labels;
+		for (double i = min; i <= max; i += ticks) {
+			double angle = getAngleForValue(i, minAngle, maxAngle, min, max);
+			double sinValue = Math.sin(angle);
+			double cosValue = Math.cos(angle);
+			int x1 = Math.round(centerX + (float) (shortRadius * sinValue));
+			int y1 = Math.round(centerY + (float) (shortRadius * cosValue));
+			int x2 = Math.round(centerX + (float) (longRadius * sinValue));
+			int y2 = Math.round(centerY + (float) (longRadius * cosValue));
+			canvas.drawLine(x1, y1, x2, y2, paint);
+			if (labels) {
+				paint.setTextAlign(Align.LEFT);
+				if (x1 <= x2) {
+					paint.setTextAlign(Align.RIGHT);
+				}
+				String text = i + "";
+				if (Math.round(i) == (long) i) {
+					text = (long) i + "";
+				}
+				canvas.drawText(text, x1, y1, paint);
+			}
+		}
 	}
 
 	public static Path getEquilateralTriangle(Point p1, int width,
